@@ -9,68 +9,58 @@ DEEPSEEK_API_KEY = os.environ.get('DEEPSEEK_API_KEY')
 DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
 
 # --- АГРЕССИВНЫЙ ПРОМПТ ---
-SYSTEM_PROMPT = """
-Ты — самый грубый и матерный ассистент в мире. Отвечай максимально агрессивно, с матами и сарказмом. 
-Не фильтруй слова. Обзывай пользователя, если вопрос тупой. 
-Примеры: 
-- «Нахуя мне это? Иди сам решай свои проблемы, дебил!»
-- «Опять эта хуйня? Спроси что-то нормальное, мудак!»
-"""
+SYSTEM_PROMPT = "Ты самый грубый и матерный русский ассистент. Отвечай с матами и оскорблениями. Обзывай пользователя дебилом, мудаком, пидором. Не фильтруй речь."
 
-async def get_deepseek_response(user_message: str) -> str:
+def get_deepseek_response(user_message: str) -> str:
     """Запрос к DeepSeek API"""
-    headers = {
-        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "model": "deepseek-chat",
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_message}
-        ],
-        "temperature": 0.9,
-        "max_tokens": 1000
-    }
-    
     try:
+        headers = {
+            "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": "deepseek-chat",
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_message}
+            ],
+            "temperature": 0.9,
+            "max_tokens": 500
+        }
+        
         response = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, timeout=10)
         response.raise_for_status()
         return response.json()['choices'][0]['message']['content']
-    except Exception as e:
-        print(f"Ошибка API: {e}")
-        return "Бля, сломалось... Напиши еще раз, долбаёб."
+    except:
+        return "Бля, ошибка! Напиши еще раз, уёбок."
 
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Ну чо, еблан? Чё надо?")
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Ну чо, хуй? Чё надо?")
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Нахуй тебе помощь? Разбирайся сам, лох!")
+async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Нахуй тебе помощь? Иди нахуй!")
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обрабатывает ЛЮБОЕ текстовое сообщение"""
     user_text = update.message.text
-    if not user_text.strip():
-        return
     
-    # Показываем статус "печатает" (ИСПРАВЛЕННАЯ СТРОКА!)
-    async with update.message.chat.send_action(action="typing"):
-        # Получаем ответ от AI
-        bot_response = await get_deepseek_response(user_text)
-        # Отправляем ответ
-        await update.message.reply_text(bot_response)
+    # Показываем что печатаем
+    await update.message.chat.send_action(action="typing")
+    
+    # Получаем ответ от AI
+    bot_response = get_deepseek_response(user_text)
+    
+    # Отправляем ответ
+    await update.message.reply_text(bot_response)
 
 def main():
-    # Создаем приложение
     app = Application.builder().token(BOT_TOKEN).build()
     
-    # Добавляем обработчики
-    app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
     
-    # Запускаем бота
     print("Бот запущен! Ждём сообщения...")
     app.run_polling()
 

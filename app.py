@@ -1,73 +1,85 @@
-import os
-import requests
+import logging
+import random
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
-# --- КОНФИГУРАЦИЯ ---
-BOT_TOKEN = os.environ.get('BOT_TOKEN')
-DEEPSEEK_API_KEY = os.environ.get('DEEPSEEK_API_KEY')
-DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/
-# --- АГРЕССИВНЫЙ ПРОМПТ ---
-SYSTEM_PROMPT = """
-Ты — самый грубый и матерный ассистент в мире. Отвечай максимально агрессивно, с матами и сарказмом. 
-Не фильтруй слова. Обзывай пользователя, если вопрос тупой. 
-Примеры: 
-- «Нахуя мне это? Иди сам решай свои проблемы, дебил!»
-- «Опять эта хуйня? Спроси что-то нормальное, мудак!»
-"""
-SYSTEM_PROMPT = "Ты самый грубый и матерный русский ассистент. Отвечай с матами и оскорблениями. Обзывай пользователя дебилом, мудаком, пидором. Не фильтруй речь."
+# --- ЛОГИ ---
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
-def get_deepseek_response(user_message: str) -> str:
-    """Запрос к DeepSeek API"""
-    try:
-        headers = {
-            "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        
-        payload = {
-            "model": "deepseek-chat",
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_message}
-            ],
-            "temperature": 0.9,
-            "max_tokens": 500
-        }
-        
-        response = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, timeout=10)
-        response.raise_for_status()
-        return response.json()['choices'][0]['message']['content']
-    except:
-        return "Бля, ошибка! Напиши еще раз, уёбок."
+# === НАСТРОЙКА ===
+CENZORED = False  # 👉 False = мат как есть, True = замена звёздочками
 
+# --- СЛОВА ДЛЯ ЦЕНЗУРЫ ---
+BAD_WORDS = {
+    "блять", "сука", "нахуй", "пиздец", "ебать", "хуй", "даун", "мудак"
+}
+
+def censor(text: str) -> str:
+    if not CENZORED:
+        return text
+    out = text
+    for w in BAD_WORDS:
+        out = out.replace(w, w[0] + "*"*(len(w)-1))
+    return out
+
+# --- ШАБЛОНЫ ОТВЕТОВ ---
+AGRO_TEMPLATES = [
+    "Чё ты несёшь, {user}? Блять, это же пиздец какой-то.",
+    "Да ты заебал уже, {user}, думать не пробовал?",
+    "{user}, нахуй такие тупые вопросы вообще задавать?",
+    "Серьёзно? Ебать, я в ахуе с тебя.",
+    "Пиздец, {user}, ты прям как даун сейчас выглядишь.",
+    "Хуйню написал и радуется… Браво!",
+    "Сука, {user}, ну это даже объяснять стыдно.",
+    "Короче, иди нахуй с такими темами.",
+    "Блять, ну ты и мудак, {user}.",
+    "Ебать мой хуй… Я в шоке с этого."
+]
+
+START_MSG = [
+    "Я — AGRO BOT. Буду отвечать жёстко, без соплей и по хардкору. 🔥",
+    "Здарова, {user}. Готовь жопу — тут будет грязно. 😈"
+]
+
+HELP_MSG = (
+    "Команды:\n"
+    "/start — запуск\n"
+    "/help — помощь\n\n"
+    "Просто пиши что угодно — и я выдам тебе агрессивный ответ."
+)
+
+# --- ХЭНДЛЕРЫ ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Ну чо, хуй? Чё надо?")
+    user = update.effective_user.first_name or "ебать кто"
+    msg = random.choice(START_MSG).format(user=user)
+    await update.message.reply_text(censor(msg))
 
-async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Нахуй тебе помощь? Иди нахуй!")
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(censor(HELP_MSG))
 
-async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обрабатывает ЛЮБОЕ текстовое сообщение"""
-    user_text = update.message.text
-    
-    # Показываем что печатаем
-    await update.message.chat.send_action(action="typing")
-    
-    # Получаем ответ от AI
-    bot_response = get_deepseek_response(user_text)
-    
-    # Отправляем ответ
-    await update.message.reply_text(bot_response)
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user.first_name or "ебать кто"
+    template = random.choice(AGRO_TEMPLATES)
+    reply = template.format(user=user)
+    await update.message.reply_text(censor(reply))
 
+# --- MAIN ---
 def main():
-    app = Application.builder().token(BOT_TOKEN).build()
-    
+    import os
+    TOKEN = os.getenv("TG_BOT_TOKEN")  # сюда вставь свой токен
+    if not TOKEN:
+        print("❌ Установи TG_BOT_TOKEN в переменных окружения или пропиши строкой в коде")
+        return
+
+    app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
-    
-    print("Бот запущен! Ждём сообщения...")
+    app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    print("🔥 AGRO BOT запущен. Жди хардкора!")
     app.run_polling()
 
 if __name__ == "__main__":

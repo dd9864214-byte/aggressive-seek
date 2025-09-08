@@ -54,14 +54,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user_text.strip():
         return
     
-    # Показываем статус "печатает"
-    await update.message.chat.send_action(action="typing")
-    
-    # Получаем ответ от AI
-    bot_response = await get_deepseek_response(user_text)
-    
-    # Отправляем ответ
-    await update.message.reply_text(bot_response)
+    # Показываем статус "печатает" (ИСПРАВЛЕННАЯ СТРОКА!)
+    async with update.message.chat.send_action(action="typing"):
+        # Получаем ответ от AI
+        bot_response = await get_deepseek_response(user_text)
+        # Отправляем ответ
+        await update.message.reply_text(bot_response)
 
 def main():
     # Создаем приложение

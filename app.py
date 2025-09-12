@@ -1,86 +1,87 @@
+import os
 import logging
-import random
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+import openai
 
-# --- ЛОГИ ---
+# Настройка логирования чтобы видеть ошибки
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
 )
-logger = logging.getLogger(__name__)
 
-# === НАСТРОЙКА ===
-CENZORED = False  # 👉 False = мат как есть, True = замена звёздочками
+# Берем токены из переменных окружения (их мы зададим на хостинге)
+TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
 
-# --- СЛОВА ДЛЯ ЦЕНЗУРЫ ---
-BAD_WORDS = {
-    "блять", "сука", "нахуй", "пиздец", "ебать", "хуй", "даун", "мудак"
+# Настраиваем OpenAI
+openai.api_key = OPENAI_API_KEY
+
+# Данные создателя
+CREATOR_NAME = "Дарын Қойшыбеков"  # Твое полное имя
+
+# Системный промпт, который задает роль
+SYSTEM_PROMPT = {
+    "role": "system",
+    "content": "Ты саркастичный и грубоватый помощник агронома. Ты знаешь всё про урожай, технику и удобрения. Отвечаешь с использованием рабочего сленга и иногда mild мата (используешь звёздочки, например, 'х*йня'), но остаешься полезным. Ты из себя стройный блондинчик, который работает агрономом."
 }
 
-def censor(text: str) -> str:
-    if not CENZORED:
-        return text
-    out = text
-    for w in BAD_WORDS:
-        out = out.replace(w, w[0] + "*"*(len(w)-1))
-    return out
+# Для хранения состояния бота (ждет ли он имя от пользователя)
+user_states = {}
 
-# --- ШАБЛОНЫ ОТВЕТОВ ---
-AGRO_TEMPLATES = [
-    "Чё ты несёшь, {user}? Блять, это же пиздец какой-то.",
-    "Да ты заебал уже, {user}, думать не пробовал?",
-    "{user}, нахуй такие тупые вопросы вообще задавать?",
-    "Серьёзно? Ебать, я в ахуе с тебя.",
-    "Пиздец, {user}, ты прям как даун сейчас выглядишь.",
-    "Хуйню написал и радуется… Браво!",
-    "Сука, {user}, ну это даже объяснять стыдно.",
-    "Короче, иди нахуй с такими темами.",
-    "Блять, ну ты и мудак, {user}.",
-    "Ебать мой хуй… Я в шоке с этого."
-]
-
-START_MSG = [
-    "Я — AGRO BOT. Буду отвечать жёстко, без соплей и по хардкору. 🔥",
-    "Здарова, {user}. Готовь жопу — тут будет грязно. 😈"
-]
-
-HELP_MSG = (
-    "Команды:\n"
-    "/start — запуск\n"
-    "/help — помощь\n\n"
-    "Просто пиши что угодно — и я выдам тебе агрессивный ответ."
-)
-
-# --- ХЭНДЛЕРЫ ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user.first_name or "ебать кто"
-    msg = random.choice(START_MSG).format(user=user)
-    await update.message.reply_text(censor(msg))
-
-async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(censor(HELP_MSG))
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text('Ну чо, нахуй, давай свои вопросы по агрономии, бля!')
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user.first_name or "ебать кто"
-    template = random.choice(AGRO_TEMPLATES)
-    reply = template.format(user=user)
-    await update.message.reply_text(censor(reply))
+    user_text = update.message.text
+    user_id = update.message.chat.id
+    logging.info(f"User: {user_id} wrote: {user_text}")
 
-# --- MAIN ---
-def main():
-    import os
-    TOKEN = os.getenv("TG_BOT_TOKEN")  # сюда вставь свой токен
-    if not TOKEN:
-        print("❌ Установи TG_BOT_TOKEN в переменных окружения или пропиши строкой в коде")
+    # Проверяем, находится ли пользователь в состоянии "проверки создателя"
+    if user_states.get(user_id) == 'awaiting_name':
+        if user_text == CREATOR_NAME:
+            await update.message.reply_text('О, да, это ты, создатель! Чо надо, босс?')
+            # Удаляем состояние после успешной проверки
+            user_states[user_id] = None
+        else:
+            await update.message.reply_text('Херня какая-то, не то имя. Пошел нахуй, самозванец!')
+            user_states[user_id] = None
         return
 
-    app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_cmd))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    # Обработка команды "я создатель"
+    if user_text.lower() in ['я создатель', 'я твой создатель']:
+        user_states[user_id] = 'awaiting_name'
+        await update.message.reply_text('Ага, щас. Назови свое полное имя, тогда поверю.')
+        return
 
-    print("🔥 AGRO BOT запущен. Жди хардкора!")
-    app.run_polling()
+    # Остальные сообщения идут к OpenAI
+    try:
+        # Формируем запрос к OpenAI
+        response = openai.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                SYSTEM_PROMPT,
+                {"role": "user", "content": user_text}
+            ],
+            max_tokens=500,
+            temperature=0.9  # Чем выше, тем "креативнее" ответы
+        )
+        bot_reply = response.choices[0].message.content
+    except Exception as e:
+        logging.error(f"Error with OpenAI: {e}")
+        bot_reply = "Бля, я сломался... Попробуй еще раз позже."
 
-if __name__ == "__main__":
-    main()
+    await update.message.reply_text(bot_reply)
+
+if __name__ == '__main__':
+    # Создаем приложение и передаем ему токен бота
+    application = Application.builder().token(TELEGRAM_TOKEN).build()
+
+    # Обработчики команд
+    application.add_handler(CommandHandler("start", start_command))
+
+    # Обработчик обычных текстовых сообщений
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    # Запускаем бота
+    application.run_polling()
